@@ -1,28 +1,52 @@
 <template>
   <div id="app">
-    <img alt="Vue logo" src="./assets/logo.png" />
-    <HelloWorld msg="Welcome to Your Vue.js App" />
+    <chartA :chart-data="chartData" :reference-lines="referenceLines" />
   </div>
 </template>
 
 <script>
-import HelloWorld from "./components/HelloWorld.vue";
+import chartA from './components/chartA.vue'
 
 export default {
-  name: "App",
+  name: 'App',
   components: {
-    HelloWorld,
+    chartA,
   },
-};
+  data: () => ({
+    // this is a sample data taken from brand-ui chart
+    chartData: {
+      labels: ['Sep.1', 'Sep.2', 'Sep.3', 'Sep.4', 'Sep.5', 'Sep.6'],
+      dataSets: [
+        {
+          text: 'LTK',
+          color: '#28A9C2',
+          data: [512, 13310, 212435, 231250, 12550, 30312],
+        },
+        {
+          text: 'YouTube',
+          color: '#C45036',
+          data: [340000, 90323, 303312, 84032, 50123, 634330],
+        },
+      ],
+    },
+    referenceLines: [
+      {
+        title: 'Your Rate:',
+        value: 197500,
+        color: '#1B8659',
+      },
+      {
+        title: 'New reference:',
+        value: 297500,
+        color: '#9BA100',
+      },
+    ],
+  }),
+}
 </script>
 
 <style lang="scss">
 #app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
   margin-top: 60px;
 }
 </style>
