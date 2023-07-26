@@ -1,12 +1,16 @@
 <template>
-  <div class="chart-container"></div>
+  <div>
+    <div class="chart-container"></div>
+  </div>
 </template>
 
 <script>
 import * as d3 from 'd3'
 import { debounce } from 'debounce'
+import { numberFormat } from '@/util/numberFormat'
+
 export default {
-  name: 'chartA',
+  name: 'PerformanceChart',
   props: {
     chartData: {
       type: Object,
@@ -37,6 +41,21 @@ export default {
       type: Boolean,
       default: false,
     },
+    format: {
+      type: String,
+      default: 'decimal',
+      validator: (value) =>
+        ['decimal', 'currency', 'percent', 'unit'].includes(value),
+    },
+    type: {
+      type: String,
+      default: 'lines',
+      validator: (value) => ['lines', 'bars'].includes(value),
+    },
+    dotSize: {
+      type: Number,
+      default: 4,
+    },
   },
   data: () => ({
     listenerController: new AbortController(), // for window resize event
@@ -48,6 +67,7 @@ export default {
           text: dataSet.text,
           label: this.chartData.labels[i],
           value: d,
+          valueFormated: this.numberFormat(d, this.format),
           color: dataSet.color,
         })),
       )
@@ -58,8 +78,9 @@ export default {
         (acc, curr) => acc.concat(curr.data),
         [],
       )
+      const referenceLines = this.referenceLines.map((line) => line.value)
       // We get the maximum number in the chart data.
-      const maxNumber = Math.round(Math.max(...allData))
+      const maxNumber = Math.round(Math.max(...allData, ...referenceLines, 10))
       // We get the number of digits in the maximum number.
       const numOfDigits = maxNumber.toString().length - 2
       // We create the multiplier for the steps.
@@ -99,6 +120,7 @@ export default {
     this.listenerController.abort()
   },
   methods: {
+    numberFormat,
     getScales(sizes) {
       const { width, height } = sizes
       const { labels } = this.chartData
@@ -125,7 +147,15 @@ export default {
       const yAxis = d3
         .axisLeft(scaleY)
         .tickValues(steps)
-        .tickFormat((d) => d)
+        .tickFormat((d) => {
+          if (d < 1000) {
+            return this.numberFormat(d, this.format)
+          } else if (d < 1000000) {
+            return `${this.numberFormat(d / 1000, this.format)}k`
+          } else {
+            return `${this.numberFormat(d / 1000000, this.format)}m`
+          }
+        })
 
       const axisGroup = svg.append('g').attr('class', 'axis')
 
@@ -209,7 +239,7 @@ export default {
           .append('text')
           .attr('fill', line.color)
           .attr('x', 0)
-          .attr('y', linePosY - 3)
+          .attr('y', linePosY - 5)
           .attr('text-anchor', 'left')
           .text(line.title)
         // get the width of the title
@@ -222,14 +252,17 @@ export default {
           .attr('fill', line.color)
           .attr('class', 'reference-amount')
           .attr('x', textWidth + 4)
-          .attr('y', linePosY - 3)
+          .attr('y', linePosY - 5)
           .attr('text-anchor', 'left')
-          .text(line.value)
+          .text(this.numberFormat(line.value, this.format))
       })
     },
     addTooltip(svg, sizes) {
       const { width, height } = sizes
-      const tooltipGroup = svg.append('g').attr('class', 'tooltip')
+      const tooltipGroup = svg
+        .append('g')
+        .attr('class', 'tooltip')
+        .attr('opacity', 0)
       // We add the tooltip rect("card")
       tooltipGroup
         .append('rect')
@@ -243,6 +276,13 @@ export default {
         .attr('class', 'tooltip-text')
         .attr('x', width / 2)
         .attr('y', height / 2)
+
+      tooltipGroup
+        .append('circle')
+        .attr('class', 'tooltip-dot')
+        .attr('cx', width / 2)
+        .attr('cy', height / 2)
+        .attr('r', this.dotSize)
     },
     getEventHandlers(scales, sizes) {
       const {
@@ -258,6 +298,12 @@ export default {
       const toolTipGroupSelected = containerSelection.select('.tooltip')
       const textSelected = containerSelection.select('.tooltip-text')
       const rectSelected = containerSelection.select('.tooltip-rect')
+      const dotSelected = containerSelection.select('.tooltip-dot')
+      const type = this.type
+      const dotSize = {
+        radius: this.dotSize,
+        padding: 10,
+      }
 
       // This function returns the position of the tooltip.
       const getPosInRange = (position, min, max) =>
@@ -266,7 +312,7 @@ export default {
       const mouseover = function (e, d) {
         const padding = 20
 
-        textSelected.text(`${d.text}: ${d.value}`)
+        textSelected.text(`${d.text}: ${d.valueFormated}`)
         const textBCR = textSelected.node().getBoundingClientRect()
 
         const xPosition = scaleX(d.label) + scaleX.bandwidth() / 2
@@ -274,11 +320,15 @@ export default {
 
         // Text position
         const text = {
-          x: xPosition - textBCR.width / 2,
+          x:
+            xPosition -
+            textBCR.width / 2 +
+            dotSize.radius +
+            dotSize.padding / 2,
           y: yPosition - textBCR.height / 2,
           minPosX: padding / 2 - marginLeft,
           maxPosX: width - textBCR.width - padding / 2 + marginRight,
-          minPosY: textBCR.height - marginTop,
+          minPosY: textBCR.height - marginTop + 3,
           maxPosY: height - padding / 2 + marginBottom,
         }
         textSelected
@@ -292,10 +342,13 @@ export default {
         const rect = {
           x: xPosition - textBCR.width / 2 - padding / 2,
           y: yPosition - textBCR.height - padding / 2,
-          width: textBCR.width + padding,
-          height: textBCR.height + padding / 2,
+          width: textBCR.width + padding + dotSize.radius + dotSize.padding / 2,
+          height: textBCR.height + padding / 2 + 1,
           minPosX: -marginLeft,
-          maxPosX: width - (textBCR.width + padding) + marginRight,
+          maxPosX:
+            width -
+            (textBCR.width + padding + dotSize.radius + dotSize.padding / 2) +
+            marginRight,
           minPosY: -marginTop,
           maxPosY: height - (textBCR.height + padding / 2) + marginBottom,
         }
@@ -307,6 +360,24 @@ export default {
           .ease(d3.easeCubicOut)
           .attr('x', getPosInRange(rect.x, rect.minPosX, rect.maxPosX))
           .attr('y', getPosInRange(rect.y, rect.minPosY, rect.maxPosY))
+          .attr('border-color', d.color)
+
+        // Dot position
+        const dot = {
+          x: rect.x + 10,
+          y: rect.y + rect.height / 2,
+          minPosX: rect.minPosX + 10,
+          maxPosX: rect.maxPosX + 10,
+          minPosY: rect.minPosY + rect.height / 2,
+          maxPosY: rect.maxPosY + rect.height / 2,
+        }
+        dotSelected
+          .transition()
+          .duration(300)
+          .ease(d3.easeCubicOut)
+          .attr('cx', getPosInRange(dot.x, dot.minPosX, dot.maxPosX))
+          .attr('cy', getPosInRange(dot.y, dot.minPosY, dot.maxPosY))
+          .attr('fill', d.color)
 
         // Show tooltip
         toolTipGroupSelected
@@ -317,9 +388,11 @@ export default {
 
         // Dot expands
         const thisElm = d3.select(this)
-        thisElm.transition().duration(300).ease(d3.easeCubicOut).attr('r', 9)
+        if (type === 'lines') {
+          thisElm.transition().duration(300).ease(d3.easeCubicOut).attr('r', 9)
+        }
 
-        // Bring line to the front
+        // Bring element to the front
         const thisElmParent = thisElm.select(function () {
           return this.parentNode
         })
@@ -335,11 +408,13 @@ export default {
           .style('opacity', 0)
 
         // Dot shrink
-        d3.select(this)
-          .transition()
-          .duration(300)
-          .ease(d3.easeCubicOut)
-          .attr('r', 5)
+        if (type === 'lines') {
+          d3.select(this)
+            .transition()
+            .duration(300)
+            .ease(d3.easeCubicOut)
+            .attr('r', 5)
+        }
       }
       return {
         mouseover,
@@ -385,59 +460,97 @@ export default {
       // REFERENCE LINES
       this.addReferenceLines(svg, scales, sizes)
 
-      const linesGroup = svg.append('g').attr('class', 'lines')
+      const contentGroup = svg.append('g').attr('class', 'content')
 
       // TOOL TIP
       this.addTooltip(svg, sizes)
 
-      // LINES CREATION
+      // CONTENT GROUP
       const { mouseover, mouseleave } = this.getEventHandlers(scales, sizes)
-      const lineFlat = d3
-        .line()
-        .curve(d3.curveCardinal.tension(0))
-        .x((d) => scaleX(d.label) + scaleX.bandwidth() / 2)
-        .y(height)
-      const line = d3
-        .line()
-        .curve(d3.curveCardinal.tension(1))
-        .x((d) => scaleX(d.label) + scaleX.bandwidth() / 2)
-        .y((d) => scaleY(d.value))
+
+      if (this.type === 'lines') {
+        const lineFlat = d3
+          .line()
+          .curve(d3.curveCardinal.tension(0))
+          .x((d) => scaleX(d.label) + scaleX.bandwidth() / 2)
+          .y(height)
+        const line = d3
+          .line()
+          .curve(d3.curveCardinal.tension(1))
+          .x((d) => scaleX(d.label) + scaleX.bandwidth() / 2)
+          .y((d) => scaleY(d.value))
+
+        // CHART LINES
+        this.computedData.forEach((dataSet) => {
+          const group = contentGroup.append('g')
+          const color = dataSet[0].color
+          group
+            .append('path')
+            .attr('stroke', color)
+            .datum(dataSet)
+            .attr('class', 'line')
+            .attr('d', lineFlat)
+            .transition()
+            .duration(animated ? 1500 : 0)
+            .ease(d3.easeCubicOut)
+            .attr('d', line)
+          group
+            .selectAll('dot')
+            .data(dataSet)
+            .enter()
+            .append('circle')
+            .attr('class', 'dot')
+            .attr('cx', (d) => scaleX(d.label) + scaleX.bandwidth() / 2)
+            .attr('cy', height)
+            .attr('r', 5)
+            .style('fill', color)
+            .style('pointer-events', 'none')
+            .on('mouseover', mouseover)
+            .on('mouseleave', mouseleave)
+            .transition()
+            .duration(animated ? 1500 : 0)
+            .ease(d3.easeCubicOut)
+            .attr('cy', (d) => scaleY(d.value))
+            .transition()
+            .duration(1)
+            .style('pointer-events', 'all')
+        })
+      } else if (this.type === 'bars') {
+        this.computedData.forEach((dataSet, idx) => {
+          const barWidth = scaleX.bandwidth() / 2 / this.computedData.length
+          const group = contentGroup.append('g')
+          const xPosFn = (d) => {
+            const basePos = scaleX(d.label) + scaleX.bandwidth() / 2
+            return this.computedData.length > 1
+              ? basePos -
+                  (barWidth * this.computedData.length) / 2 +
+                  idx * barWidth
+              : basePos - barWidth / 2
+          }
+          group
+            .attr('class', `bar-group bar-group-${idx}`)
+            .selectAll('.bar')
+            .data(dataSet)
+            .enter()
+            .append('rect')
+            .attr('class', (d, i) => `bar bar-${idx}-${i}`)
+            .attr('x', xPosFn)
+            .attr('width', barWidth)
+            .attr('fill', (d) => d.color)
+            .attr('y', height)
+            .attr('height', 0)
+            .on('mouseover', mouseover)
+            .on('mouseleave', mouseleave)
+            .transition()
+            .duration(animated ? 1500 : 0)
+            .ease(d3.easeCubicOut)
+            .delay((d, i) => (animated ? i * 150 : 0))
+            .attr('y', (d) => scaleY(d.value))
+            .attr('height', (d) => height - scaleY(d.value))
+        })
+      }
 
       // CHART LINES
-      this.computedData.forEach((dataSet) => {
-        const group = linesGroup.append('g')
-        const color = dataSet[0].color
-        group
-          .append('path')
-          .attr('stroke', color)
-          .datum(dataSet)
-          .attr('class', 'line')
-          .attr('d', lineFlat)
-          .transition()
-          .duration(animated ? 1500 : 0)
-          .ease(d3.easeCubicOut)
-          .attr('d', line)
-        group
-          .selectAll('dot')
-          .data(dataSet)
-          .enter()
-          .append('circle')
-          .attr('class', 'dot')
-          .attr('cx', (d) => scaleX(d.label) + scaleX.bandwidth() / 2)
-          .attr('cy', height)
-          .attr('r', 5)
-          .style('fill', color)
-          .style('pointer-events', 'none')
-          .on('mouseover', mouseover)
-          .on('mouseleave', mouseleave)
-          .transition()
-          .duration(animated ? 1500 : 0)
-          .ease(d3.easeCubicOut)
-          .attr('cy', (d) => scaleY(d.value))
-          .transition()
-          .duration(1)
-          .style('pointer-events', 'all')
-      })
     },
   },
 }
@@ -458,6 +571,7 @@ export default {
     fill: none
     stroke: transparent
     shape-rendering: crispEdges
+
   & text
     font-family: sans-serif
     font-size: 10px
@@ -468,6 +582,7 @@ export default {
     fill: none
     stroke: lightgrey
     shape-rendering: crispEdges
+
   @media screen and (max-width: 600px)
     line
       stroke-width: 1px
@@ -476,7 +591,8 @@ export default {
   line
     fill: none
     shape-rendering: crispEdges
-    stroke-dasharray: 4,4
+    stroke-dasharray: 4, 4
+
   & text
     font-family: sans-serif
     font-size: 12px
